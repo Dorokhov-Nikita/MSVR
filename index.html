@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
-<title>PA#1</title>
+<title>PA#2</title>
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -105,6 +105,26 @@
         <label>Convergence <span id="valConv">14.0</span></label>
         <input type="range" id="convergence" min="1.0" max="30.0" step="0.5" value="14.0"
                oninput="document.getElementById('valConv').textContent=parseFloat(this.value).toFixed(1); updateParameters();">
+    </div>
+</div>
+<div class="controls" style="margin-top: 16px;">
+    <div class="control-item" style="grid-column: span 2;">
+        <label>Sensor Server
+            <span id="wsStatus" style="color:#ff4444;">Disconnected</span>
+        </label>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="sensorIP" value="192.168.1.100"
+                   style="flex:1; padding:4px; border-radius:4px; border:none;
+                          background:#2a1a44; color:#fff; font-family:monospace;">
+            <input type="text" id="sensorPort" value="8080"
+                   style="width:70px; padding:4px; border-radius:4px; border:none;
+                          background:#2a1a44; color:#fff; font-family:monospace;">
+            <button onclick="connectSensor()"
+                    style="padding:4px 14px; background:#a070cc; border:none;
+                           border-radius:4px; color:#fff; cursor:pointer;">
+                Connect
+            </button>
+        </div>
     </div>
 </div>
 

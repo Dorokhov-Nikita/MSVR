@@ -35,6 +35,54 @@ function ShaderProgram(name, program) {
     }
 }
 
+let sensorMatrix = m4.identity();
+let ws = null;
+
+function connectSensor() {
+    const ip = document.getElementById('sensorIP').value;
+    const port = document.getElementById('sensorPort').value;
+    const url = `ws://${ip}:${port}/sensor/connect?type=android.sensor.orientation`;
+
+    if (ws) ws.close();
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        document.getElementById('wsStatus').textContent = 'Connected';
+        document.getElementById('wsStatus').style.color = '#00ff88';
+    };
+
+    ws.onclose = () => {
+        document.getElementById('wsStatus').textContent = 'Disconnected';
+        document.getElementById('wsStatus').style.color = '#ff4444';
+    };
+
+    ws.onerror = () => {
+        document.getElementById('wsStatus').textContent = 'Error';
+        document.getElementById('wsStatus').style.color = '#ff4444';
+    };
+
+    const SMOOTH = 0.85;
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        const az    = data.values[0] * Math.PI / 180;
+        const pitch = data.values[1] * Math.PI / 180;
+        const roll  = data.values[2] * Math.PI / 180;
+
+        const Rz = m4.axisRotation([0, 0, 1], az);
+        const Rx = m4.axisRotation([1, 0, 0], pitch);
+        const Ry = m4.axisRotation([0, 1, 0], roll);
+
+        let tmp = m4.multiply(Rx, Rz);
+        let newMatrix = m4.multiply(Ry, tmp);
+
+        for (let i = 0; i < 16; i++) {
+            sensorMatrix[i] = SMOOTH * sensorMatrix[i] + (1 - SMOOTH) * newMatrix[i];
+        }
+    };
+}
 
 /* Draws a colored cube, along with a set of coordinate axes.
  * (Note that the use of the above drawPrimitive function is not an efficient
@@ -84,6 +132,7 @@ function draw() {
     let translateLeftEye = m4. translation(stereoCam.eyeSeparation/2, 0, 0);
 
     let matAccum0 = m4.multiply(rotateToPointZero, modelView );
+    matAccum0 = m4.multiply(sensorMatrix, matAccum0);
     let matAccum1 = m4.multiply(translateLeftEye, matAccum0 );
     let matAccum2 = m4.multiply(translateToPointZero, matAccum1 );
     let matAccum3 = m4.multiply(scaleDown, matAccum2);
@@ -111,6 +160,7 @@ function draw() {
     let translateRightEye = m4. translation(-stereoCam.eyeSeparation/2, 0, 0);
 
     matAccum0 = m4.multiply(rotateToPointZero, modelView );
+    matAccum0 = m4.multiply(sensorMatrix, matAccum0);
     matAccum1 = m4.multiply(translateRightEye, matAccum0 );
     matAccum2 = m4.multiply(translateToPointZero, matAccum1 );
     matAccum3 = m4.multiply(scaleDown, matAccum2);
@@ -284,3 +334,4 @@ function updateParameters() {
     stereoCam.convergence          = parseFloat(document.getElementById('convergence').value);
     draw();
 }
+

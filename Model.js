@@ -102,7 +102,7 @@ function CreateSurfaceData(data) {
             texcoords.push(i / aSteps, j / betaSteps);
         }
     }
-
+ 
     const rowSize = betaSteps + 1;
     for (let i = 0; i < aSteps; i++) {
         for (let j = 0; j < betaSteps; j++) {
