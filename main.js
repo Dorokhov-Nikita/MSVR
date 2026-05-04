@@ -11,6 +11,11 @@ let iTextureWebCam = null;
 
 let video;
 
+let soundSphere = null;
+
+let isAudioStarted = false;
+let frozenViewMatrix = null;
+
 // Constructor
 function ShaderProgram(name, program) {
 
@@ -35,6 +40,144 @@ function ShaderProgram(name, program) {
     }
 }
 
+let sensorMatrix = m4.identity();
+let ws = null;
+
+function connectSensor() {
+    const ip = document.getElementById('sensorIP').value;
+    const port = document.getElementById('sensorPort').value;
+    const url = `ws://${ip}:${port}/sensor/connect?type=android.sensor.orientation`;
+
+    if (ws) ws.close();
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        document.getElementById('wsStatus').textContent = 'Connected';
+        document.getElementById('wsStatus').style.color = '#00ff88';
+    };
+
+    ws.onclose = () => {
+        document.getElementById('wsStatus').textContent = 'Disconnected';
+        document.getElementById('wsStatus').style.color = '#ff4444';
+    };
+
+    ws.onerror = () => {
+        document.getElementById('wsStatus').textContent = 'Error';
+        document.getElementById('wsStatus').style.color = '#ff4444';
+    };
+
+    const SMOOTH = 0.85;
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        const az    = data.values[0] * Math.PI / 180;
+        const pitch = data.values[1] * Math.PI / 180;
+        const roll  = data.values[2] * Math.PI / 180;
+
+        const Rz = m4.axisRotation([0, 0, 1], az);
+        const Rx = m4.axisRotation([1, 0, 0], pitch);
+        const Ry = m4.axisRotation([0, 1, 0], roll);
+
+        let tmp = m4.multiply(Rx, Rz);
+        let newMatrix = m4.multiply(Ry, tmp);
+
+        for (let i = 0; i < 16; i++) {
+            sensorMatrix[i] = SMOOTH * sensorMatrix[i] + (1 - SMOOTH) * newMatrix[i];
+        }
+    };
+}
+
+// Web Audio
+let audioCtx = null;
+let panner = null;
+let audioSource = null;
+let biquadFilter = null;
+let soundAngle = 0;
+const SOUND_RADIUS = 3.0; 
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.listener.positionX.setValueAtTime(0, audioCtx.currentTime);
+    audioCtx.listener.positionY.setValueAtTime(0, audioCtx.currentTime);
+    audioCtx.listener.positionZ.setValueAtTime(0, audioCtx.currentTime);
+    fetch('audio.mp3')
+        .then(r => r.arrayBuffer())
+        .then(buf => audioCtx.decodeAudioData(buf))
+        .then(decoded => {
+            audioSource = audioCtx.createBufferSource();
+            audioSource.buffer = decoded;
+            audioSource.loop = true;
+
+            panner = audioCtx.createPanner();
+            panner.panningModel = 'HRTF';
+            panner.distanceModel = 'inverse';
+            panner.refDistance = 1;
+            panner.maxDistance = 100;
+            panner.rolloffFactor = 1;
+
+            biquadFilter = audioCtx.createBiquadFilter();
+            biquadFilter.type = 'bandpass';
+            biquadFilter.frequency.value = 1000;
+            biquadFilter.Q.value = 1.5;
+
+            const filterEnabled = document.getElementById('filterEnabled').checked;
+
+            if (filterEnabled) {
+                audioSource.connect(biquadFilter);
+                biquadFilter.connect(panner);
+            } else {
+                audioSource.connect(panner);
+            }
+            panner.connect(audioCtx.destination);
+
+            audioSource.start();
+            isAudioStarted = true;
+            frozenViewMatrix = spaceball.getViewMatrix();
+            isAudioStarted = true;
+        });
+}
+
+function toggleFilter() {
+    if (!audioSource || !panner || !biquadFilter) return;
+
+    const enabled = document.getElementById('filterEnabled').checked;
+
+    audioSource.disconnect();
+    biquadFilter.disconnect();
+    panner.disconnect();
+
+    if (enabled) {
+        audioSource.connect(biquadFilter);
+        biquadFilter.connect(panner);
+    } else {
+        audioSource.connect(panner);
+    }
+    panner.connect(audioCtx.destination);
+}
+
+function updateSoundPosition() {
+    if (!panner) return null;
+    if (!panner) return;
+
+    let x = SOUND_RADIUS * Math.cos(soundAngle);
+    let y = 0;
+    let z = SOUND_RADIUS * Math.sin(soundAngle);
+
+    let vec = [x, y, z, 1];
+    let res = m4.transformVector(sensorMatrix, vec);
+
+    x = res[0];
+    y = res[1];
+    z = res[2];
+
+    panner.positionX.setValueAtTime(x, audioCtx.currentTime);
+    panner.positionY.setValueAtTime(y, audioCtx.currentTime);
+    panner.positionZ.setValueAtTime(z, audioCtx.currentTime);
+
+    return [x, y, z];
+}
 
 /* Draws a colored cube, along with a set of coordinate axes.
  * (Note that the use of the above drawPrimitive function is not an efficient
@@ -45,6 +188,9 @@ function draw() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     gl.uniform1i(shProgram.iTMU0, 0);
+    const soundPos = updateSoundPosition();
+    console.log('soundPos:', soundPos);
+
 
     // PATH ZERO: DRAW ZERO PARALLAX WEBCAM
 
@@ -67,7 +213,7 @@ function draw() {
 
     
     /* Get the view matrix from the SimpleRotator object.*/
-    let modelView = spaceball.getViewMatrix();
+    let modelView = isAudioStarted ? frozenViewMatrix : spaceball.getViewMatrix();
 
     let rotateToPointZero = m4.axisRotation([0.707,0.707,0], 0.7);
     let scaleDown = m4.scaling(0.04, 0.04, 0.04);
@@ -84,6 +230,9 @@ function draw() {
     let translateLeftEye = m4. translation(stereoCam.eyeSeparation/2, 0, 0);
 
     let matAccum0 = m4.multiply(rotateToPointZero, modelView );
+    if (!isAudioStarted) {
+        matAccum0 = m4.multiply(sensorMatrix, matAccum0);
+    }
     let matAccum1 = m4.multiply(translateLeftEye, matAccum0 );
     let matAccum2 = m4.multiply(translateToPointZero, matAccum1 );
     let matAccum3 = m4.multiply(scaleDown, matAccum2);
@@ -111,6 +260,9 @@ function draw() {
     let translateRightEye = m4. translation(-stereoCam.eyeSeparation/2, 0, 0);
 
     matAccum0 = m4.multiply(rotateToPointZero, modelView );
+    if (!isAudioStarted) {
+        matAccum0 = m4.multiply(sensorMatrix, matAccum0);
+    }
     matAccum1 = m4.multiply(translateRightEye, matAccum0 );
     matAccum2 = m4.multiply(translateToPointZero, matAccum1 );
     matAccum3 = m4.multiply(scaleDown, matAccum2);
@@ -123,6 +275,42 @@ function draw() {
     gl.uniform4fv(shProgram.iColor, colorEdge );
     surface.DrawWireframe();
 
+    if (soundPos && soundSphere) {
+        const sx = soundPos[0];
+        const sy = soundPos[1];
+        const sz = soundPos[2];
+
+        gl.disable(gl.POLYGON_OFFSET_FILL);
+
+        let sphereModel = m4.translation(sx, sy, sz);
+        let sphereScale = m4.scaling(0.05, 0.05, 0.05);
+
+        gl.uniformMatrix4fv(shProgram.iProjectionMatrix, false, matrLeftFrustum);
+        let sm1 = m4.multiply(translateLeftEye, sphereModel);
+        let sm2 = m4.multiply(translateToPointZero, sm1);
+        let sm3 = m4.multiply(sphereScale, sm2);
+        gl.uniformMatrix4fv(shProgram.iModelViewMatrix, false, sm3);
+        gl.colorMask(true, false, false, true);
+        gl.uniform1i(shProgram.bUseTexture, 0);
+        gl.uniform4fv(shProgram.iColor, colorPolygon);
+        soundSphere.Draw();
+        gl.uniform4fv(shProgram.iColor, colorEdge);
+        soundSphere.DrawWireframe();
+
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.uniformMatrix4fv(shProgram.iProjectionMatrix, false, matrRightFrustum);
+        let sm1r = m4.multiply(translateRightEye, sphereModel);
+        let sm2r = m4.multiply(translateToPointZero, sm1r);
+        let sm3r = m4.multiply(sphereScale, sm2r);
+        gl.uniformMatrix4fv(shProgram.iModelViewMatrix, false, sm3r);
+        gl.colorMask(false, true, true, true);
+        gl.uniform1i(shProgram.bUseTexture, 0);
+        gl.uniform4fv(shProgram.iColor, colorPolygon);
+        soundSphere.Draw();
+        gl.uniform4fv(shProgram.iColor, colorEdge);
+        soundSphere.DrawWireframe();
+    }
+
     // RESET specific params to their default state
 
     gl.disable(gl.POLYGON_OFFSET_FILL);
@@ -131,7 +319,7 @@ function draw() {
 
 
 
-/* Initialize the WebGL context. Called from init() */
+// Initialize the WebGL context. Called from init()
 function initGL() {
     let prog = createProgram( gl, vertexShaderSource, fragmentShaderSource );
 
@@ -154,6 +342,7 @@ function initGL() {
     surface = new Model('Surface');
     surface.BufferData(data.verticesF32, data.indicesU16, data.texcoordsF32);
 
+
     surfaceWebCam = new Model('SurfaceWebCam');
     const wcVerts = new Float32Array([
         0, 0, 0,
@@ -171,15 +360,21 @@ function initGL() {
     surfaceWebCam.BufferData(wcVerts, wcIdx, wcTex);
 
     stereoCam = new StereoCamera(
-        .7,     // decimeters
-        14.0,   // decimeters
-        1.0,    // aspect ratio of canvas
-        0.4,    // radians
-        0.5,    // decimeters
-        100.0    // decimeters
+        .7,
+        14.0,
+        1.0,
+        0.4,
+        0.5,
+        100.0
     );
 
     surface.idTextureDiffuse  = LoadTexture();
+
+    soundSphere = new Model('SoundSphere');
+    let sphereData = {};
+    CreateSphereData(sphereData, 1.0, 16, 16);
+    soundSphere.BufferData(sphereData.verticesF32, sphereData.indicesU16, sphereData.texcoordsF32);
+    soundSphere.idTextureDiffuse = surface.idTextureDiffuse;
 
     gl.enable(gl.DEPTH_TEST);
 }
@@ -217,9 +412,7 @@ function createProgram(gl, vShader, fShader) {
 }
 
 
-/**
- * initialization function that will be called when the page has loaded
- */
+// initialization function that will be called when the page has loaded
 function init() {
     let canvas;
     try {
@@ -283,4 +476,8 @@ function updateParameters() {
     stereoCam.nearClippingDistance = parseFloat(document.getElementById('nearClipping').value);
     stereoCam.convergence          = parseFloat(document.getElementById('convergence').value);
     draw();
+}
+
+function setSoundAngle(val) {
+    soundAngle = parseFloat(val);
 }

@@ -102,7 +102,7 @@ function CreateSurfaceData(data) {
             texcoords.push(i / aSteps, j / betaSteps);
         }
     }
-
+ 
     const rowSize = betaSteps + 1;
     for (let i = 0; i < aSteps; i++) {
         for (let j = 0; j < betaSteps; j++) {
@@ -113,6 +113,36 @@ function CreateSurfaceData(data) {
 
             indices.push(a, b, c);
             indices.push(b, d, c);
+        }
+    }
+
+    data.verticesF32  = new Float32Array(vertices);
+    data.texcoordsF32 = new Float32Array(texcoords);
+    data.indicesU16   = new Uint16Array(indices);
+}
+
+function CreateSphereData(data, radius, latSteps, lonSteps) {
+    let vertices = [], texcoords = [], indices = [];
+
+    for (let i = 0; i <= latSteps; i++) {
+        let theta = i * Math.PI / latSteps;
+        for (let j = 0; j <= lonSteps; j++) {
+            let phi = j * 2 * Math.PI / lonSteps;
+            vertices.push(
+                radius * Math.sin(theta) * Math.cos(phi),
+                radius * Math.cos(theta),
+                radius * Math.sin(theta) * Math.sin(phi)
+            );
+            texcoords.push(j / lonSteps, i / latSteps);
+        }
+    }
+
+    const row = lonSteps + 1;
+    for (let i = 0; i < latSteps; i++) {
+        for (let j = 0; j < lonSteps; j++) {
+            let a = i * row + j;
+            indices.push(a, a+1, a+row);
+            indices.push(a+1, a+row+1, a+row);
         }
     }
 
