@@ -1,111 +1,134 @@
 <!DOCTYPE html>
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR — Conjugation of Two Coaxial Cylinders</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #000; }
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(64,38,102,0.85);
+            color: #fff;
+            padding: 10px 22px;
+            border-radius: 24px;
+            font-family: monospace;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 999;
+            white-space: nowrap;
+            border: 1px solid #a070cc;
+        }
+    </style>
 
-<title>PA#1</title>
-<style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-        background-color: #402666;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 30px 20px;
-        font-family: sans-serif;
-        color: #fff;
-    }
-
-    h2 {
-        margin-bottom: 20px;
-        text-align: center;
-        color: #fff;
-    }
-
-    #canvas-holder {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 24px;
-    }
-
-    #webglcanvas {
-        display: block;
-        background-color: #000;
-    }
-
-    .controls {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 16px 40px;
-        width: 100%;
-        max-width: 620px;
-    }
-
-    .control-item {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .control-item label {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.9em;
-        color: #ddd;
-    }
-
-    .control-item label span {
-        color: #ffcc00;
-        font-weight: bold;
-        font-family: monospace;
-    }
-
-    input[type="range"] {
-        width: 100%;
-        accent-color: #a070cc;
-    }
-</style>
-
-<script src="./Utils/trackball-rotator.js"></script>
-<script src="./Utils/m4.js"></script>
-<script src="./shader.gpu"></script>
-<script src="./Model.js"></script>
-<script src="./StereoCamera.js"></script>
-<script src="./Texture.js"></script>
-<script src="./main.js"></script>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/aframe/1.4.2/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
 </head>
-<body onload="init()">
+<body>
 
-<h2>Conjugation of Two Coaxial Cylinders of Different Diameters</h2>
+<div id="info">Point camera at your custom AR marker</div>
 
-<div id="canvas-holder">
-    <canvas width="600" height="600" id="webglcanvas"></canvas>
-</div>
+<a-scene
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false; sourceWidth: 1920; sourceHeight: 1080; displayWidth: 1920; displayHeight: 1080;"
+    renderer="logarithmicDepthBuffer: true; antialias: true;"
+    vr-mode-ui="enabled: false">
 
-<div class="controls">
-    <div class="control-item">
-        <label>Eye Separation <span id="valEyeSep">0.7</span></label>
-        <input type="range" id="eyeSeparation" min="0.1" max="2.0" step="0.1" value="0.7"
-               oninput="document.getElementById('valEyeSep').textContent=parseFloat(this.value).toFixed(1); updateParameters();">
-    </div>
+    <a-marker type="pattern" url="pattern-custom.patt" id="marker">
+        <a-entity id="surface-entity" position="0 0 0" rotation="-90 0 0" scale="0.5 0.5 0.5">
+            <a-entity coaxial-surface></a-entity>
+        </a-entity>
+    </a-marker>
 
-    <div class="control-item">
-        <label>Field of View <span id="valFov">0.40</span></label>
-        <input type="range" id="fov" min="0.1" max="1.5" step="0.05" value="0.4"
-               oninput="document.getElementById('valFov').textContent=parseFloat(this.value).toFixed(2); updateParameters();">
-    </div>
+    <a-entity camera></a-entity>
+</a-scene>
 
-    <div class="control-item">
-        <label>Near Clipping <span id="valNear">0.5</span></label>
-        <input type="range" id="nearClipping" min="0.1" max="5.0" step="0.1" value="0.5"
-               oninput="document.getElementById('valNear').textContent=parseFloat(this.value).toFixed(1); updateParameters();">
-    </div>
+<script>
 
-    <div class="control-item">
-        <label>Convergence <span id="valConv">14.0</span></label>
-        <input type="range" id="convergence" min="1.0" max="30.0" step="0.5" value="14.0"
-               oninput="document.getElementById('valConv').textContent=parseFloat(this.value).toFixed(1); updateParameters();">
-    </div>
-</div>
+function buildSurfaceGeometry() {
+    const R1 = 1.0;
+    const R2 = 3.0 * R1;
+    const b  = 3.0 * R1;
 
-</body></html>
+    const aSteps    = 60;
+    const betaSteps = 60;
+
+    const positions  = [];
+    const uvs        = [];
+    const indices    = [];
+
+    for (let i = 0; i <= aSteps; i++) {
+        const a = (2 * b * i) / aSteps;
+
+        for (let j = 0; j <= betaSteps; j++) {
+            const beta = (2 * Math.PI * j) / betaSteps;
+            const r = (R2 - R1) * Math.pow(Math.sin((Math.PI * a) / (4 * b)), 2) + R1;
+
+            positions.push(r * Math.cos(beta), r * Math.sin(beta), a);
+            uvs.push(i / aSteps, j / betaSteps);
+        }
+    }
+
+    const rowSize = betaSteps + 1;
+    for (let i = 0; i < aSteps; i++) {
+        for (let j = 0; j < betaSteps; j++) {
+            const a = i * rowSize + j;
+            const bv = a + 1;
+            const c = (i + 1) * rowSize + j;
+            const d = c + 1;
+            indices.push(a, bv, c);
+            indices.push(bv, d, c);
+        }
+    }
+
+    return { positions, uvs, indices };
+}
+
+
+AFRAME.registerComponent('coaxial-surface', {
+    init: function () {
+        const { positions, uvs, indices } = buildSurfaceGeometry();
+
+        const geometry = new THREE.BufferGeometry();
+
+        const posArr = new Float32Array(positions);
+        const uvArr  = new Float32Array(uvs);
+        const idxArr = new Uint32Array(indices);
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+        geometry.setAttribute('uv',       new THREE.BufferAttribute(uvArr,  2));
+        geometry.setIndex(new THREE.BufferAttribute(idxArr, 1));
+        geometry.computeVertexNormals();
+
+        const matSolid = new THREE.MeshPhongMaterial({
+            color:       0x8844cc,
+            specular:    0xffffff,
+            shininess:   60,
+            transparent: true,
+            opacity:     0.82,
+            side:        THREE.DoubleSide,
+        });
+        const meshSolid = new THREE.Mesh(geometry, matSolid);
+
+        const wireGeo = new THREE.WireframeGeometry(geometry);
+        const matWire = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.4, transparent: true });
+        const meshWire = new THREE.LineSegments(wireGeo, matWire);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        const dirLight     = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(5, 10, 7);
+
+        this.el.setObject3D('mesh',      meshSolid);
+        this.el.setObject3D('wireframe', meshWire);
+        this.el.sceneEl.object3D.add(ambientLight);
+        this.el.sceneEl.object3D.add(dirLight);
+    }
+});
+
+</script>
+</body>
+</html>
